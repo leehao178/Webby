@@ -1,0 +1,50 @@
+name: Build Webby IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Get source
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Remove iCloud entitlement
+        run: sed -i '' '/ubiquity-kvstore-identifier/d' project.yml
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive without signing
+        run: |
+          xcodebuild archive \
+            -project Webby.xcodeproj \
+            -scheme Webby \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -archivePath build/Webby.xcarchive \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Restore entitlements
+        run: |
+          APP=build/Webby.xcarchive/Products/Applications/Webby.app
+          codesign --force --sign - --entitlements TopShelf/WebbyTopShelf.entitlements "$APP/PlugIns/WebbyTopShelf.appex"
+          codesign --force --sign - --entitlements Webby/Resources/Webby.entitlements "$APP"
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Webby.xcarchive/Products/Applications/Webby.app Payload/
+          zip -qry Webby.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Webby-ipa
+          path: Webby.ipa
+          if-no-files-found: error
